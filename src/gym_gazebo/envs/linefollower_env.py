@@ -79,7 +79,6 @@ class LineFollowerEnv(GazeboEnv):
 
         # Allow some time to settle
         time.sleep(0.1) # Wait 100 ms
-        
         self.is_resetting = False
 
         # Wait for next observation to come in before kickstarting the data loop
@@ -87,10 +86,8 @@ class LineFollowerEnv(GazeboEnv):
         while not self.new_obs_event:
             # Telling executor (node) to spin
             rclpy.spin_once(self.ros_node, timeout_sec=0.01)
-
         # # Pause the sim after the first observation comes in
         self._pause_sim(True)
-        
         state, _ = self.process_obs(self.latest_obs)
 
         print("Done resetting")
@@ -140,7 +137,20 @@ class LineFollowerEnv(GazeboEnv):
         '''
         vel_cmd = RosTwist()
 
-        # TODO: Impelement process action.
+        LINEAR_VELOCITY = 0.5
+        ANGULAR_VELOCITY = 0.5
+
+        if action == 0: # left
+            vel_cmd.linear.x = LINEAR_VELOCITY
+            vel_cmd.angular.z = ANGULAR_VELOCITY
+        elif action == 1: # forward
+            vel_cmd.linear.x = LINEAR_VELOCITY
+            vel_cmd.angular.z = 0.0
+        elif action == 2: # right
+            vel_cmd.linear.x = LINEAR_VELOCITY
+            vel_cmd.angular.z = -ANGULAR_VELOCITY
+
+        self.pub_cmd_vel_msg.publish(vel_cmd)
         
         return vel_cmd
 
@@ -151,9 +161,16 @@ class LineFollowerEnv(GazeboEnv):
                a reward
         @retval reward: the reward for the current step
         '''
-        reward = 0
+        reward = 0.0
 
-        # TODO: Implement process reward.
+        if action == 1: # forward
+            reward +=1
+        if state == 1: # center
+            reward += 5
+        elif state == 0 or state == 2: # left or right
+            reward += 0
+        elif state == -1 or terminated: # no line detected
+            reward += -10
         
         return reward
 
@@ -169,12 +186,47 @@ class LineFollowerEnv(GazeboEnv):
         @retval terminated: the termination condition occured - the line is no 
                     longer in the field of the camera
         '''
-        cv_image = CvBridge().imgmsg_to_cv2(obs, desired_encoding='bgr8')
+        frame = CvBridge().imgmsg_to_cv2(obs, desired_encoding='bgr8')
 
         state = 0
         terminated = False
 
-        # TODO: Implement process observation
+        NUM_ROWS = 20          # how many rows from the bottom to look at
+        DARK_THRESHOLD = 100   # pixels with gray value below this count as "road" 
+        WIDTH_OF_CENTER = 20     # how many pixels from the center count as "center"
+
+        height, width = frame.shape[:2]
+
+        # 1. Grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # 2. Keep only the bottom NUM_ROWS rows
+        strip = gray[max(0, height - NUM_ROWS):, :]
+
+        # 3. Mask: 255 where pixel is darker than the threshold, 0 elsewhere
+        mask = cv2.inRange(strip, 0, DARK_THRESHOLD)
+
+        # 4. X centroid of the dark blob using image moments
+        m = cv2.moments(mask, binaryImage=True)
+        if m["m00"] > 0:
+            line_x = m["m10"] / m["m00"]   # sum of x positions / number of pixels
+            self.last_line_x = line_x
+        else:
+            state = -1      # no dark pixels found, so keep the previous value
+            terminated = True
+            print("No dark pixels found - line is not visible")
+
+        if state != -1:
+            if line_x < width / 2 - WIDTH_OF_CENTER:
+                state = 0   # left
+            elif line_x > width / 2 + WIDTH_OF_CENTER:
+                state = 2   # right
+            elif line_x >= 0 and line_x <= frame.shape[1]:
+                state = 1   # center
+            else:
+                state = -1  # no line detected
+                terminated = True
+                print("center line off the picture -weird")
 
         return state, terminated
 
