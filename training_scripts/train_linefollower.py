@@ -25,14 +25,11 @@ def main():
     highest_reward = 0
 
     try:
-        print(3)
         state, _ = env.reset()
-        print(4)
         for episode in range(1000):
             total_reward = 0
             actions_per_episode = 0
             done = False
-            print(5)
             while not done:
                 actions_per_episode += 1
                 action = choose_action(state, q_table, epsilon, action_space)

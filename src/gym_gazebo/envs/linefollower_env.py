@@ -166,11 +166,11 @@ class LineFollowerEnv(GazeboEnv):
         if action == 1: # forward
             reward +=1
         if state == 1: # center
-            reward += 5
+            reward += 10
         elif state == 0 or state == 2: # left or right
-            reward += 0
+            reward += -1
         elif state == -1 or terminated: # no line detected
-            reward += -10
+            reward += -100  # changed from -10  
         
         return reward
 
